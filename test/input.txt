@@ -1,0 +1,13 @@
+ini adalah contoh file yang akan dibaca oleh hcat.
+
+2024-12-14
+ 2024-12-14 19:01
+
+19:01:32
+
+e755c7d4-0c54-4239-bea3-c27ea355e20b
+
+2024-12-14T19:01:49
+
+Copyright (c) 2024 LitFill. All Rights Reserved.
+
