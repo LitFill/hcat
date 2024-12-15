@@ -1,15 +1,18 @@
-{-# LANGUAGE LambdaCase #-}
-
 module HCat where
 
-import Flow
+import Control.Exception qualified as Exception
+import Data.Text.IO qualified as TextIO
 import System.Environment qualified as Env
+import System.IO.Error qualified as IOError
+
+import Flow
 
 data Result a = Err String | Ok a
 
-toEither :: Result a -> Either String a
-toEither (Ok a) = Right a
-toEither (Err e) = Left e
+toIOError :: Result a -> IO a
+toIOError (Ok a) = return a
+toIOError (Err e) =
+    IOError.userError e |> Exception.throwIO
 
 handleArgs
     :: [String] -> Result FilePath
@@ -21,8 +24,14 @@ handleArgs _ =
 
 run :: IO ()
 run =
-    Env.getArgs
-        >>= handleArgs
-            .> toEither
-            .> either ("HCAT: " <>) ("input: " <>)
-            .> print
+    withErrHandling
+        <| Env.getArgs
+        >>= handleArgs .> toIOError
+        >>= TextIO.readFile
+        >>= TextIO.putStrLn
+  where
+    withErrHandling :: IO () -> IO ()
+    withErrHandling =
+        Exception.handle <| \e ->
+            putStr "HCAT: ERROR: "
+                >> print @IOError e
