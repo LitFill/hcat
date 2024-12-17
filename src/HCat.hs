@@ -187,4 +187,12 @@ runDo = do
             >>= flip IO.openFile IO.ReadMode
             >>= TextIO.hGetContents
     termSize <- getTermSize
-    paginates termSize content |> showPages
+    paginates termSize content
+        |> showPages
+        |> Exception.handle printError
+
+printError
+    :: Exception.IOException -> IO ()
+printError e =
+    putStr "HCAT: ERROR: "
+        >> print @IOError e
