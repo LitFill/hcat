@@ -83,6 +83,9 @@ library
     -- Directories containing source files.
     hs-source-dirs:   src
 
+    default-extensions: OverloadedStrings
+                      , LambdaCase
+
     -- Base language which the package is written in.
     default-language: GHC2021
 

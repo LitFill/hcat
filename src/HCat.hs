@@ -2,12 +2,16 @@ module HCat where
 
 import Flow
 
-import Control.Exception qualified as Exception
+import Data.Functor ((<&>))
 import Data.Text (Text)
+
+import Control.Exception qualified as Exception
+import Data.ByteString qualified as BS
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TextIO
 import Data.Tuple.Extra qualified as Tuple
 import System.Environment qualified as Env
+import System.IO qualified as IO
 import System.IO.Error qualified as IOError
 import System.Info qualified as SysInfo
 import System.Process qualified as Proc
@@ -27,16 +31,16 @@ data ScreenDimensions where
         -> ScreenDimensions
     deriving (Show)
 
-data CancelContinue where
-    Cancel :: CancelContinue
-    Continue :: CancelContinue
+data UserInput where
+    Quit :: UserInput
+    Continue :: UserInput
+    Noop :: UserInput
     deriving (Show)
 
 handleArgs
     :: [String] -> Result FilePath
 handleArgs [filepath] = Ok filepath
-handleArgs [] =
-    Err "ERROR: no arguments provided!"
+handleArgs [] = Err "ERROR: no arguments provided!"
 handleArgs _ =
     Err
         "ERROR: too much arguments provided!"
@@ -117,22 +121,70 @@ getTermSize = case SysInfo.os of
     tputScrDim = do
         rows <- getFromTput "lines"
         cols <- getFromTput "cols"
-        return $ ScreenDimensions rows cols
+        return $
+            ScreenDimensions (rows - 2) cols
       where
         getFromTput prop =
             read . init
                 <$> Proc.readProcess "tput" [prop] mempty
 
+getUserInput :: IO UserInput
+getUserInput =
+    IO.hSetBuffering IO.stdin IO.NoBuffering
+        >> IO.hSetEcho IO.stdin False
+        >> getChar
+        <&> \case
+            ' ' -> Continue
+            'q' -> Quit
+            _ -> Noop
+
+run2 :: IO ()
+run2 =
+    putStrLn
+        "do you want to continue (space) or quit (q)?"
+        >> getUserInput
+        >>= \case
+            Continue -> putStrLn "Ok, continuing..." >> run2
+            Quit -> putStrLn "Good bye..."
+            Noop -> run2
+
+showPages :: [Text] -> IO ()
+showPages [] = return ()
+showPages p@(page : pages) =
+    clearScreen
+        >> TextIO.putStrLn page
+        >> getUserInput
+        >>= \case
+            Continue -> showPages pages
+            Quit -> return ()
+            Noop -> showPages p
+
+clearScreen :: IO ()
+clearScreen = BS.putStr "\^[[1J\^[[1;1H" -- terminal magic, wow
+
 run :: IO ()
 run =
-    withErrHandling
-        <| Env.getArgs
+    withErrHandling <| Env.getArgs
         >>= handleArgs .> toIOError
-        >>= TextIO.readFile
-        >>= TextIO.putStrLn
+        >>= flip IO.openFile IO.ReadMode
+        >>= TextIO.hGetContents
+        >>= \contents ->
+            getTermSize
+                >>= \size ->
+                    paginates size contents |> showPages
   where
     withErrHandling :: IO () -> IO ()
     withErrHandling =
         Exception.handle <| \e ->
             putStr "HCAT: ERROR: "
                 >> print @IOError e
+
+runDo :: IO ()
+runDo = do
+    content <-
+        Env.getArgs
+            >>= handleArgs .> toIOError
+            >>= flip IO.openFile IO.ReadMode
+            >>= TextIO.hGetContents
+    termSize <- getTermSize
+    paginates termSize content |> showPages
