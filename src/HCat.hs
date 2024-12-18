@@ -256,31 +256,25 @@ fmtFileInfo
     maxWidth
     ttlPages
     crntPage =
-        let
-            permString =
-                [ if frdable then 'r' else '-'
-                , if fwrable then 'w' else '-'
-                , if fexeable then 'x' else '-'
-                ]
-            timestamp =
-                TimeFmt.formatTime
-                    TimeFmt.defaultTimeLocale
-                    "%F %T"
-                    fmtime
-            statusLn =
-                printf
-                    "%s | perm: %s | %d bytes | modified: %s | page %d of %d"
-                    fpath
-                    permString
-                    fsize
-                    timestamp
-                    crntPage
-                    ttlPages
-                    |> Text.pack
-         in
-            statusLn
-                |> truncateStatusLn
-                |> invertTextColor
+        printf
+            "%s | perm: %s | %d bytes | modified: %s | page %d of %d"
+            fpath
+            [ if frdable then 'r' else '-'
+            , if fwrable then 'w' else '-'
+            , if fexeable then 'x' else '-'
+            ]
+            fsize
+            ( TimeFmt.formatTime
+                TimeFmt.defaultTimeLocale
+                "%F %T"
+                fmtime
+            )
+            crntPage
+            ttlPages
+            |> Text.pack
+            |> truncateStatusLn
+            |> ("\^[[7m" <>) -- invert color
+            |> (<> "\^[[0m") -- reset color
       where
         truncateStatusLn statusLn
             | maxWidth <= 3 = ""
