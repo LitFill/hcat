@@ -4,17 +4,24 @@ import Flow
 
 import Data.Functor ((<&>))
 import Data.Text (Text)
+import Text.Printf (printf)
 
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as BS
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TextIO
+import Data.Time.Clock qualified as Clock
+import Data.Time.Format qualified as TimeFmt
 import Data.Tuple.Extra qualified as Tuple
+import System.Directory qualified as Dir
 import System.Environment qualified as Env
 import System.IO qualified as IO
 import System.IO.Error qualified as IOError
 import System.Info qualified as SysInfo
 import System.Process qualified as Proc
+
+-- TODO: pisahkan kode eksperimental ke modulnya sendiri tanpa mengimportnya ke sini
+-- TODO: refaktor kode ini, sangat _nasty_
 
 data Result a where
     Err :: String -> Result a
@@ -35,6 +42,18 @@ data UserInput where
     Quit :: UserInput
     Continue :: UserInput
     Noop :: UserInput
+    deriving (Show)
+
+data FileInfo where
+    FileInfo
+        :: { filePath :: FilePath
+           , fileSize :: Int
+           , fileMTime :: Clock.UTCTime
+           , fileReadable :: Bool
+           , fileWritable :: Bool
+           , fileExecutable :: Bool
+           }
+        -> FileInfo
     deriving (Show)
 
 handleArgs
@@ -162,22 +181,93 @@ showPages p@(page : pages) =
 clearScreen :: IO ()
 clearScreen = BS.putStr "\^[[1J\^[[1;1H" -- terminal magic, wow
 
+fileInfo :: FilePath -> IO FileInfo
+fileInfo fpath =
+    Dir.getPermissions fpath >>= \perms ->
+        Dir.getModificationTime fpath >>= \mtime ->
+            BS.readFile fpath >>= \contents ->
+                let size = BS.length contents
+                 in return
+                        FileInfo
+                            { filePath = fpath
+                            , fileSize = size
+                            , fileMTime = mtime
+                            , fileReadable = Dir.readable perms
+                            , fileWritable = Dir.writable perms
+                            , fileExecutable = Dir.executable perms
+                            }
+
+fmtFileInfo
+    :: FileInfo -> Int -> Int -> Int -> Text
+fmtFileInfo
+    ( FileInfo
+            fpath
+            fsize
+            fmtime
+            frdable
+            fwrable
+            fexeable
+        )
+    maxWidth
+    ttlPages
+    crntPage =
+        let
+            permString =
+                [ if frdable then 'r' else '-'
+                , if fwrable then 'w' else '-'
+                , if fexeable then 'x' else '-'
+                ]
+            timestamp =
+                TimeFmt.formatTime
+                    TimeFmt.defaultTimeLocale
+                    "%F %T"
+                    fmtime
+            statusLn =
+                printf
+                    "%s | perm: %s | %d bytes | modified: %s | page %d of %d"
+                    fpath
+                    permString
+                    fsize
+                    timestamp
+                    crntPage
+                    ttlPages
+                    |> Text.pack
+         in
+            statusLn
+                |> truncateStatusLn
+                |> invertTextColor
+      where
+        truncateStatusLn statusLn
+            | maxWidth <= 3 = ""
+            | Text.length statusLn > maxWidth =
+                Text.take (maxWidth - 3) statusLn
+                    <> "..."
+            | otherwise = statusLn
+        invertTextColor inputStr =
+            let
+                reverseVideo = "\^[[7m"
+                resetVideo = "\^[[0m"
+             in
+                reverseVideo <> inputStr <> resetVideo
+
 run :: IO ()
 run =
-    withErrHandling <| Env.getArgs
+    Exception.handle printError
+        <| Env.getArgs
         >>= handleArgs .> toIOError
         >>= flip IO.openFile IO.ReadMode
         >>= TextIO.hGetContents
         >>= \contents ->
-            getTermSize
-                >>= \size ->
-                    paginates size contents |> showPages
-  where
-    withErrHandling :: IO () -> IO ()
-    withErrHandling =
-        Exception.handle <| \e ->
-            putStr "HCAT: ERROR: "
-                >> print @IOError e
+            getTermSize >>= \size ->
+                paginates size contents
+                    |> showPages
+
+-- where
+--   withErrHandling :: IO () -> IO ()
+--   withErrHandling =
+--       Exception.handle <| \e ->
+--           putStr "HCAT: ERROR: "
+--               >> print @IOError e
 
 runDo :: IO ()
 runDo = do
@@ -193,6 +283,4 @@ runDo = do
 
 printError
     :: Exception.IOException -> IO ()
-printError e =
-    putStr "HCAT: ERROR: "
-        >> print @IOError e
+printError e = putStr "HCAT: ERROR: " >> print e
