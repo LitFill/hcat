@@ -197,54 +197,50 @@ getTermSize = case SysInfo.os of
                 <$> Proc.readProcess "tput" [prop] mempty
 
 getUserInput :: IO UserInput
-getUserInput =
+getUserInput = do
     IO.hSetBuffering IO.stdin IO.NoBuffering
-        >> IO.hSetEcho IO.stdin False
-        >> getChar
-        <&> \case
-            ' ' -> Continue
-            'q' -> Quit
-            _ -> Noop
+    IO.hSetEcho IO.stdin False
+    getChar <&> \case
+        ' ' -> Continue
+        'q' -> Quit
+        _ -> Noop
 
 run2 :: IO ()
-run2 =
+run2 = do
     putStrLn
         "do you want to continue (space) or quit (q)?"
-        >> getUserInput
-        >>= \case
-            Continue -> putStrLn "Ok, continuing..." >> run2
-            Quit -> putStrLn "Good bye..."
-            Noop -> run2
+    getUserInput >>= \case
+        Continue -> putStrLn "Ok, continuing..." >> run2
+        Quit -> putStrLn "Good bye..."
+        Noop -> run2
 
 showPages :: [Text] -> IO ()
 showPages [] = return ()
-showPages p@(page : pages) =
+showPages p@(page : pages) = do
     clearScreen
-        >> TextIO.putStrLn page
-        >> getUserInput
-        >>= \case
-            Continue -> showPages pages
-            Quit -> return ()
-            Noop -> showPages p
+    TextIO.putStrLn page
+    getUserInput >>= \case
+        Continue -> showPages pages
+        Quit -> return ()
+        Noop -> showPages p
 
 clearScreen :: IO ()
 clearScreen = BS.putStr "\^[[1J\^[[1;1H" -- terminal magic, wow
 
 fileInfo :: FilePath -> IO FileInfo
-fileInfo fpath =
-    Dir.getPermissions fpath >>= \perms ->
-        Dir.getModificationTime fpath >>= \mtime ->
-            BS.readFile fpath >>= \contents ->
-                let size = BS.length contents
-                 in return
-                        FileInfo
-                            { filePath = fpath
-                            , fileSize = size
-                            , fileMTime = mtime
-                            , fileReadable = Dir.readable perms
-                            , fileWritable = Dir.writable perms
-                            , fileExecutable = Dir.executable perms
-                            }
+fileInfo fpath = do
+    perms <- Dir.getPermissions fpath
+    mtime <- Dir.getModificationTime fpath
+    size <- BS.length <$> BS.readFile fpath
+    return
+        FileInfo
+            { filePath = fpath
+            , fileSize = size
+            , fileMTime = mtime
+            , fileReadable = Dir.readable perms
+            , fileWritable = Dir.writable perms
+            , fileExecutable = Dir.executable perms
+            }
 
 fmtFileInfo
     :: FileInfo -> Int -> Int -> Int -> Text
@@ -292,24 +288,17 @@ fmtFileInfo
                 Text.take (maxWidth - 3) statusLn
                     <> "..."
             | otherwise = statusLn
-        invertTextColor inputStr =
-            let
-                reverseVideo = "\^[[7m"
-                resetVideo = "\^[[0m"
-             in
-                reverseVideo <> inputStr <> resetVideo
 
 run :: IO ()
-run =
-    Exception.handle printError
-        <| Env.getArgs
-        >>= handleArgs .> toIOError
-        >>= flip IO.openFile IO.ReadMode
-        >>= TextIO.hGetContents
-        >>= \contents ->
-            getTermSize >>= \size ->
-                paginates size contents
-                    |> showPages
+run = Exception.handle printError $ do
+    args <- Env.getArgs
+    fpath <- handleArgs args |> toIOError
+    fhandle <- IO.openFile fpath IO.ReadMode
+    contents <- TextIO.hGetContents fhandle
+    size <- getTermSize
+    finfo <- fileInfo fpath
+    paginates3 size finfo contents
+        |> showPages
 
 -- where
 --   withErrHandling :: IO () -> IO ()
