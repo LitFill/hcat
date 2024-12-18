@@ -129,6 +129,54 @@ paginates (ScreenDimensions rows cols) =
         .> groupsOf rows
         .> map Text.unlines
 
+paginates2
+    :: ScreenDimensions
+    -> FileInfo
+    -> Text
+    -> [Text]
+paginates2 (ScreenDimensions rows cols) finfo text =
+    let
+        wrappedLine =
+            concatMap
+                (wordWrap cols)
+                (Text.lines text)
+        pages =
+            wrappedLine
+                |> groupsOf rows
+                |> map
+                    ( (<> repeat "")
+                        .> take rows
+                        .> Text.unlines
+                    )
+        pageCount = length pages
+        statusLn =
+            map
+                (fmtFileInfo finfo cols pageCount)
+                [1 .. pageCount]
+     in
+        zipWith (<>) pages statusLn
+
+paginates3
+    :: ScreenDimensions
+    -> FileInfo
+    -> Text
+    -> [Text]
+paginates3 (ScreenDimensions rows cols) finfo text =
+    let pages =
+            text
+                |> Text.lines
+                |> concatMap (wordWrap cols)
+                |> groupsOf rows
+                |> map
+                    ( (<> repeat "") -- padding the status line
+                        .> take rows
+                        .> Text.unlines
+                    )
+     in [1 .. length pages]
+            |> map
+                (fmtFileInfo finfo cols (length pages))
+            |> zipWith (<>) pages
+
 getTermSize :: IO ScreenDimensions
 getTermSize = case SysInfo.os of
     unix
@@ -141,6 +189,7 @@ getTermSize = case SysInfo.os of
         rows <- getFromTput "lines"
         cols <- getFromTput "cols"
         return $
+            {-here (-2) is 1 for my terminal offset, and 1 for status line-}
             ScreenDimensions (rows - 2) cols
       where
         getFromTput prop =
