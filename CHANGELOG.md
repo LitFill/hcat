@@ -2,11 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [0.1.2.0] - 2024-12-21
 
 ### 🚀 Features
 
-- *(all)* Initial commit
 - *(hcat)* Finish first draf so hcat = cat
 - *(lib)* Add functionality for pagination
 - *(hcat,cabal)* Finish pagination and user control
