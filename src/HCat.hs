@@ -3,8 +3,12 @@ module HCat where
 import Flow
 
 import Data.Functor ((<&>))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import System.Environment (getArgs)
+import System.Process (readProcess)
 import Text.Printf (printf)
+import Text.Read (readMaybe)
 
 import Control.Exception qualified as Exception
 import Data.ByteString qualified as BS
@@ -13,11 +17,10 @@ import Data.Text.IO qualified as TextIO
 import Data.Time.Clock qualified as Clock
 import Data.Time.Format qualified as TimeFmt
 import System.Directory qualified as Dir
-import System.Environment qualified as Env
+import System.Exit qualified as Exit
 import System.IO qualified as IO
 import System.IO.Error qualified as IOError
 import System.Info qualified as SysInfo
-import System.Process qualified as Proc
 
 data Result a where
     Err :: String -> Result a
@@ -122,16 +125,29 @@ getTermSize = case SysInfo.os of
     _ -> return $ ScreenDimensions 25 80
   where
     tputScrDim :: IO ScreenDimensions
-    tputScrDim = do
-        rows <- getFromTput "lines"
-        cols <- getFromTput "cols"
+    tputScrDim = Exception.handle showError $ do
+        rows <-
+            fromMaybe 2 <$> getFromTput "lines"
+        cols <-
+            fromMaybe 2 <$> getFromTput "cols"
         return $
             {-here (-2) is 1 for my terminal offset, and 1 for status line-}
             ScreenDimensions (rows - 2) cols
       where
         getFromTput prop =
-            read . init
-                <$> Proc.readProcess "tput" [prop] mempty
+            readMaybe
+                <$> readProcess "tputa" [prop] mempty
+        showError
+            :: IOError -> IO ScreenDimensions
+        showError e = do
+            putStr "getTermSize: "
+            putStrLn
+                ( e
+                    |> show
+                    |> takeWhile (/= ':')
+                    |> (<> " is missing")
+                )
+            Exit.exitWith (Exit.ExitFailure 1)
 
 getUserInput :: IO UserInput
 getUserInput = do
@@ -221,7 +237,7 @@ fmtFileInfo
 run :: IO ()
 run = Exception.handle printError $ do
     fpath <-
-        toIOError <. handleArgs =<< Env.getArgs
+        toIOError <. handleArgs =<< getArgs
     contents <-
         TextIO.hGetContents
             =<< IO.openFile fpath IO.ReadMode
