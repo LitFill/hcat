@@ -19,8 +19,6 @@ import System.IO.Error qualified as IOError
 import System.Info qualified as SysInfo
 import System.Process qualified as Proc
 
--- TODO: refaktor kode ini, sangat _nasty_
-
 data Result a where
     Err :: String -> Result a
     Ok :: a -> Result a
@@ -224,14 +222,14 @@ fmtFileInfo
 run :: IO ()
 run = Exception.handle printError $ do
     fpath <-
-        Env.getArgs >>= handleArgs .> toIOError
+        toIOError <. handleArgs =<< Env.getArgs
     contents <-
-        IO.openFile fpath IO.ReadMode
-            >>= TextIO.hGetContents
+        TextIO.hGetContents
+            =<< IO.openFile fpath IO.ReadMode
     finfo <- fileInfo fpath
     size <- getTermSize
-    paginates size finfo contents
-        |> showPages
+    showPages
+        <| paginates size finfo contents
 
 printError
     :: Exception.IOException -> IO ()
