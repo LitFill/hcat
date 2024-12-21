@@ -1,5 +1,7 @@
 module Internal where
 
+-- \| Internal module is a container for experimental codes that I previously wrote in the main library
+
 import Flow
 import HCat
 
