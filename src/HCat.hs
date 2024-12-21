@@ -207,7 +207,6 @@ fmtFileInfo
                 statusLn
                     |> (<> repeat ' ')
                     |> take maxWidth
-
         permString =
             [ if frdable then 'r' else '-'
             , if fwrable then 'w' else '-'
