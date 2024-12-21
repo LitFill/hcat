@@ -65,7 +65,7 @@ library
     exposed-modules:  HCat
 
     -- Modules included in this library but not exported.
-    -- other-modules:
+    other-modules:    Internal
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

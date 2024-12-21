@@ -12,7 +12,6 @@ import Data.Text qualified as Text
 import Data.Text.IO qualified as TextIO
 import Data.Time.Clock qualified as Clock
 import Data.Time.Format qualified as TimeFmt
-import Data.Tuple.Extra qualified as Tuple
 import System.Directory qualified as Dir
 import System.Environment qualified as Env
 import System.IO qualified as IO
@@ -20,7 +19,6 @@ import System.IO.Error qualified as IOError
 import System.Info qualified as SysInfo
 import System.Process qualified as Proc
 
--- TODO: pisahkan kode eksperimental ke modulnya sendiri tanpa mengimportnya ke sini
 -- TODO: refaktor kode ini, sangat _nasty_
 
 data Result a where
@@ -71,12 +69,6 @@ groupsOf n lst =
     let (x, xs) = splitAt n lst
      in x : groupsOf n xs
 
-groupsOf' :: Int -> [a] -> [[a]]
-groupsOf' n =
-    splitAt n
-        .> Tuple.second (groupsOf n)
-        .> uncurry (:)
-
 wordWrap :: Int -> Text -> [Text]
 wordWrap maxColumn text
     | Text.length text <= maxColumn = [text]
@@ -103,65 +95,12 @@ wordWrap maxColumn text
         | otherwise =
             softWrap hardwrappedText (textIdx - 1)
 
-wordWrap' :: Int -> Text -> [Text]
-wordWrap' maxCol text =
-    Text.splitAt maxCol text
-        |> Tuple.first
-            (\x -> softWrap x <| Text.length x - 1)
-        |> uncurry recurse
-  where
-    softWrap hdwrpdTxt txtIdx
-        | txtIdx <= 0 = (hdwrpdTxt, Text.empty)
-        | Text.index hdwrpdTxt txtIdx == ' ' =
-            Text.splitAt txtIdx hdwrpdTxt
-                |> Tuple.second Text.tail
-        | otherwise =
-            softWrap hdwrpdTxt (txtIdx - 1)
-    recurse (firstLn, ovrflw) nextLn =
-        firstLn
-            : wordWrap' maxCol (ovrflw <> nextLn)
-
 paginates
-    :: ScreenDimensions -> Text -> [Text]
-paginates (ScreenDimensions rows cols) =
-    Text.lines
-        .> concatMap (wordWrap cols)
-        .> groupsOf rows
-        .> map Text.unlines
-
-paginates2
     :: ScreenDimensions
     -> FileInfo
     -> Text
     -> [Text]
-paginates2 (ScreenDimensions rows cols) finfo text =
-    let
-        wrappedLine =
-            concatMap
-                (wordWrap cols)
-                (Text.lines text)
-        pages =
-            wrappedLine
-                |> groupsOf rows
-                |> map
-                    ( (<> repeat "")
-                        .> take rows
-                        .> Text.unlines
-                    )
-        pageCount = length pages
-        statusLn =
-            map
-                (fmtFileInfo finfo cols pageCount)
-                [1 .. pageCount]
-     in
-        zipWith (<>) pages statusLn
-
-paginates3
-    :: ScreenDimensions
-    -> FileInfo
-    -> Text
-    -> [Text]
-paginates3 (ScreenDimensions rows cols) finfo text =
+paginates (ScreenDimensions rows cols) finfo text =
     let pages =
             text
                 |> Text.lines
@@ -205,15 +144,6 @@ getUserInput = do
         'q' -> Quit
         _ -> Noop
 
-run2 :: IO ()
-run2 = do
-    putStrLn
-        "do you want to continue (space) or quit (q)?"
-    getUserInput >>= \case
-        Continue -> putStrLn "Ok, continuing..." >> run2
-        Quit -> putStrLn "Good bye..."
-        Noop -> run2
-
 showPages :: [Text] -> IO ()
 showPages [] = return ()
 showPages p@(page : pages) = do
@@ -236,7 +166,8 @@ fileInfo fpath = do
         FileInfo
             { filePath = fpath
             , fileSize = size
-            , fileMTime = mtime
+            , fileMTime =
+                mtime |> Clock.addUTCTime (7 * 60 * 60)
             , fileReadable = Dir.readable perms
             , fileWritable = Dir.writable perms
             , fileExecutable = Dir.executable perms
@@ -259,59 +190,48 @@ fmtFileInfo
         printf
             "%s | perm: %s | %d bytes | modified: %s | page %d of %d"
             fpath
-            [ if frdable then 'r' else '-'
-            , if fwrable then 'w' else '-'
-            , if fexeable then 'x' else '-'
-            ]
+            permString
             fsize
-            ( TimeFmt.formatTime
-                TimeFmt.defaultTimeLocale
-                "%F %T"
-                fmtime
-            )
+            timestamp
             crntPage
             ttlPages
-            |> Text.pack
             |> truncateStatusLn
+            |> Text.pack
             |> ("\^[[7m" <>) -- invert color
             |> (<> "\^[[0m") -- reset color
       where
         truncateStatusLn statusLn
             | maxWidth <= 3 = ""
-            | Text.length statusLn > maxWidth =
-                Text.take (maxWidth - 3) statusLn
+            | length statusLn > maxWidth =
+                take (maxWidth - 3) statusLn
                     <> "..."
-            | otherwise = statusLn
+            | otherwise =
+                statusLn
+                    |> (<> repeat ' ')
+                    |> take maxWidth
+
+        permString =
+            [ if frdable then 'r' else '-'
+            , if fwrable then 'w' else '-'
+            , if fexeable then 'x' else '-'
+            ]
+        timestamp =
+            TimeFmt.formatTime
+                TimeFmt.defaultTimeLocale
+                "%F %T"
+                fmtime
 
 run :: IO ()
 run = Exception.handle printError $ do
-    args <- Env.getArgs
-    fpath <- handleArgs args |> toIOError
-    fhandle <- IO.openFile fpath IO.ReadMode
-    contents <- TextIO.hGetContents fhandle
-    size <- getTermSize
-    finfo <- fileInfo fpath
-    paginates3 size finfo contents
-        |> showPages
-
--- where
---   withErrHandling :: IO () -> IO ()
---   withErrHandling =
---       Exception.handle <| \e ->
---           putStr "HCAT: ERROR: "
---               >> print @IOError e
-
-runDo :: IO ()
-runDo = do
-    content <-
-        Env.getArgs
-            >>= handleArgs .> toIOError
-            >>= flip IO.openFile IO.ReadMode
+    fpath <-
+        Env.getArgs >>= handleArgs .> toIOError
+    contents <-
+        IO.openFile fpath IO.ReadMode
             >>= TextIO.hGetContents
-    termSize <- getTermSize
-    paginates termSize content
+    finfo <- fileInfo fpath
+    size <- getTermSize
+    paginates size finfo contents
         |> showPages
-        |> Exception.handle printError
 
 printError
     :: Exception.IOException -> IO ()
